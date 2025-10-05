@@ -1,1 +1,4 @@
 /worktrees
+zig/.zig-cache/
+zig/zig-out/
+result
