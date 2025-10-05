@@ -2,3 +2,5 @@
 zig/.zig-cache/
 zig/zig-out/
 result
+
+rust/target/

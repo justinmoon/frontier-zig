@@ -1,0 +1,18 @@
+[package]
+name = "frontier_blitz_bridge"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyrender_vello = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c" }
+blitz-dom = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c", features = ["default"] }
+blitz-html = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c" }
+blitz-shell = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c" }
+winit = { version = "0.30" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
