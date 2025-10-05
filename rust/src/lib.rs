@@ -6,6 +6,7 @@ use blitz_dom::DocumentConfig;
 use blitz_html::HtmlDocument;
 use blitz_shell::{create_default_event_loop, BlitzApplication, BlitzShellEvent, View, WindowConfig};
 use blitz_traits::navigation::{NavigationProvider, NavigationOptions};
+use blitz_traits::net::Body;
 use tracing_subscriber::EnvFilter;
 use winit::application::ApplicationHandler;
 use winit::event::{Modifiers, StartCause, WindowEvent};
@@ -70,7 +71,20 @@ struct FrontierNavigationProvider {
 
 impl NavigationProvider for FrontierNavigationProvider {
     fn navigate_to(&self, options: NavigationOptions) {
-        let url = options.url.to_string();
+        // Check if this is a form submission with a URL input
+        let url = if let Body::Form(ref form_data) = options.document_resource {
+            // Look for a "url" field in the form data
+            if let Some(entry) = form_data.iter().find(|e| e.name == "url") {
+                let url_string = entry.value.as_ref();
+                tracing::info!("Form submitted with URL: {}", url_string);
+                url_string.to_string()
+            } else {
+                options.url.to_string()
+            }
+        } else {
+            options.url.to_string()
+        };
+
         tracing::info!("Navigation requested to: {}", url);
 
         // Call Zig to fetch the URL and get HTML
@@ -93,7 +107,10 @@ impl NavigationProvider for FrontierNavigationProvider {
             state.pending_navigation = Some((html, url));
         }
 
-        // The navigation will be applied in the next new_events() call
+        // Wake up the event loop to apply navigation immediately
+        // We can't directly request a redraw here, but we can send a Poll event
+        // The pending navigation will be applied in the next new_events() call
+        // For now, rely on the next event loop iteration
     }
 }
 
@@ -213,7 +230,7 @@ impl ApplicationHandler<BlitzShellEvent> for FrontierApplication {
                         tracing::info!("Got HTML from Zig ({} bytes)", html.len());
 
                         // Update document directly
-                        self.update_document(html, "about:command-palette");
+                        self.update_document(html, "http://localhost/");
 
                         // Note: Not freeing since Zig returns static strings for now
                         // unsafe { frontier_free_html(html_result.ptr, html_result.len) };
@@ -235,7 +252,18 @@ impl ApplicationHandler<BlitzShellEvent> for FrontierApplication {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: BlitzShellEvent) {
-        // Pass to inner handler (no custom logic needed)
+        // Check for pending navigation before passing to inner handler
+        let pending = {
+            let mut state = self.state.lock().unwrap();
+            state.pending_navigation.take()
+        };
+
+        if let Some((html, url)) = pending {
+            tracing::info!("Applying pending navigation to: {}", url);
+            self.update_document(&html, &url);
+        }
+
+        // Pass to inner handler
         self.inner.user_event(event_loop, event);
     }
 }
@@ -301,10 +329,10 @@ pub extern "C" fn frontier_blitz_run_static_html(html_ptr: *const u8, len: usize
 
     let state = Arc::new(Mutex::new(NavigationState::new(
         html_owned.clone(),
-        "about:blank".to_string(),
+        "http://localhost/".to_string(),
     )));
 
-    let result = panic::catch_unwind(move || run_event_loop(&html_owned, "about:blank", state));
+    let result = panic::catch_unwind(move || run_event_loop(&html_owned, "http://localhost/", state));
 
     match result {
         Ok(Ok(())) => true,

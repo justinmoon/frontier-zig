@@ -90,6 +90,11 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
+    // Allow passing arguments to the run command
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
     const run_step = b.step("run", "Run the frontier-zig host executable.");
     run_step.dependOn(&run_cmd.step);
 

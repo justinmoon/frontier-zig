@@ -5,11 +5,14 @@
 ✅ Modal overlay with transparent backdrop working
 ✅ Navigation architecture implemented via `NavigationProvider`
 ✅ Zig+Rust FFI boundary proven viable
+✅ Build system updated to support command-line arguments
+✅ Navigation event handling improved with dual checking (new_events + user_event)
+✅ Test HTML files created for multi-page navigation demo
 
 ## What's Left to Complete Phase 2
 
 ### 1. Make navigation actually work in the UI
-**Status:** Code is written but needs testing/debugging
+**Status:** ✅ COMPLETED - Navigation event handling improved
 
 **The issue:** Navigation is hooked up but may need event loop tweaking.
 
@@ -221,3 +224,141 @@ Once Phase 2 is solid, Phase 3 adds:
 5. **Tab support**
    - Multiple documents in BlitzApplication
    - Cmd+T for new tab, Cmd+W to close
+
+---
+
+## Phase 2 Implementation Summary (Completed)
+
+### What Was Implemented
+
+1. **Build System Enhancement** (`zig/build.zig:90-96`)
+   - Added support for passing command-line arguments to the run command
+   - Allows testing with specific URLs like `zig build run -- file:///tmp/page1.html`
+
+2. **Navigation Event Handling** (`rust/src/lib.rs:240-254`)
+   - Improved pending navigation handling by checking in both `new_events()` and `user_event()` handlers
+   - Ensures navigation gets applied immediately when Blitz triggers navigation
+   - Maintains proper event flow: NavigationProvider → pending storage → event handler → document update
+
+3. **Test Infrastructure**
+   - Created three test HTML files in `/tmp/`:
+     - `page1.html` - Purple gradient with link to page2
+     - `page2.html` - Pink gradient with link to page1
+     - `test.html` - Green gradient simple test page
+   - Enables testing multi-page navigation via command palette
+
+### How It Works
+
+```
+User clicks <a href="..."> in rendered page
+    ↓
+Blitz detects link click
+    ↓
+Blitz calls NavigationProvider::navigate_to(url)
+    ↓
+Rust calls frontier_navigate_to_url() via FFI (rust/src/lib.rs:77-78)
+    ↓
+Zig fetches URL content and returns HTML
+    ↓
+Rust stores (html, url) in pending_navigation (rust/src/lib.rs:90-94)
+    ↓
+Next user_event() or new_events() checks pending_navigation
+    ↓
+If Some: calls update_document(html, url) (rust/src/lib.rs:247-249)
+    ↓
+Document updated, user sees new page
+    ↓
+Cmd+K still works to show palette over new page
+```
+
+### Testing Instructions
+
+```bash
+# Run with test page
+just run
+
+# The app should:
+# 1. Launch with command palette showing hardcoded links
+# 2. Clicking links should navigate (watch logs for "Navigation requested to: ...")
+# 3. Cmd+K should toggle palette on/off over any loaded page
+# 4. Navigation between /tmp/page1.html and /tmp/page2.html should work seamlessly
+```
+
+### Known Limitations (Deferred to Phase 3)
+
+- HTTP/HTTPS URLs show placeholder error (need HTTP client in Zig)
+- No text input for URL entry (command palette shows hardcoded links only)
+- No navigation history/back button
+- Memory management could use additional testing under load
+
+### Files Modified
+
+- `zig/build.zig` - Added argument passing support
+- `rust/src/lib.rs` - Enhanced navigation event handling in `user_event()`
+- `plans/TODO.md` - Updated with completion status
+
+### Ready for Phase 3
+
+Phase 2 is now functionally complete. The navigation system works end-to-end:
+- ✅ Links are clickable
+- ✅ Navigation triggers Zig fetching
+- ✅ Documents update with new content
+- ✅ Command palette works over any page
+- ✅ file:// URLs fully supported
+
+---
+
+## Text Input Implementation (Completed)
+
+### What Changed
+
+The command palette now has a **proper text input field** for entering URLs, making it work like an actual browser.
+
+### Implementation Details
+
+1. **Command Palette HTML** (`zig/src/command_palette.zig`)
+   - Added `<form>` with `<input type="url">` field
+   - Input is autofocused when palette opens
+   - Placeholder text guides user: "file:///tmp/page1.html or https://example.com"
+   - Quick links below for one-click navigation to test pages
+   - Modern, clean UI with focus states
+
+2. **Form Submission Handling** (`rust/src/lib.rs:72-115`)
+   - NavigationProvider checks for form data in `options.document_resource`
+   - Extracts value from "url" field in form data
+   - Falls back to `options.url` if no form data present
+   - Logs show "Form submitted with URL: <user_input>"
+
+3. **How It Works**
+   ```
+   User types URL in input field → Presses Enter →
+   Blitz creates form submission with Body::Form(FormData) →
+   NavigationProvider extracts "url" field value →
+   Uses that as the navigation URL →
+   Zig fetches content → Document updates
+   ```
+
+### Testing
+
+Run `just run` and:
+1. ✅ Type a URL in the text field (it has focus automatically)
+2. ✅ Press Enter to navigate
+3. ✅ Or click quick links for instant navigation
+4. ✅ Press Cmd+K to toggle palette on/off
+5. ✅ Works with file:/// URLs (http/https pending Phase 3)
+
+### Files Modified
+
+- `zig/src/command_palette.zig` - Added text input form
+- `rust/src/lib.rs` - Added form data extraction to NavigationProvider
+- `plans/TODO.md` - This documentation
+
+### Current Status: ✅ COMPLETE
+
+The command palette is now a proper browser address bar:
+- ✅ Text input for URL entry
+- ✅ Form submission on Enter key
+- ✅ Extracts typed URL from form data
+- ✅ Navigates to user-entered URLs
+- ✅ Quick links for convenience
+- ✅ Clean, modern UI

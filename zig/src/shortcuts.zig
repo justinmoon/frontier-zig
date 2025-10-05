@@ -57,70 +57,12 @@ export fn frontier_get_command_palette_html() HtmlResult {
 
         std.log.info("Base page length: {} bytes", .{base_page.len});
 
-        // Modal with quicklink navigation (Phase 2 workaround)
-        const modal_div =
-            \\  <style>
-            \\    .cmd-palette-backdrop {
-            \\      position: fixed;
-            \\      top: 0;
-            \\      left: 0;
-            \\      right: 0;
-            \\      bottom: 0;
-            \\      background: rgba(0, 0, 0, 0.5);
-            \\      z-index: 9999;
-            \\      display: flex;
-            \\      align-items: flex-start;
-            \\      justify-content: center;
-            \\      padding-top: 20vh;
-            \\    }
-            \\    .cmd-palette-modal {
-            \\      background: white;
-            \\      border-radius: 8px;
-            \\      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
-            \\      width: 90%;
-            \\      max-width: 600px;
-            \\      padding: 24px;
-            \\    }
-            \\    .cmd-palette-modal h1 {
-            \\      margin: 0 0 16px 0;
-            \\      font-size: 24px;
-            \\      color: #333;
-            \\    }
-            \\    .cmd-palette-modal a {
-            \\      display: block;
-            \\      padding: 12px 16px;
-            \\      margin: 8px 0;
-            \\      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            \\      color: white;
-            \\      text-decoration: none;
-            \\      border-radius: 6px;
-            \\      font-weight: 500;
-            \\      transition: transform 0.2s;
-            \\    }
-            \\    .cmd-palette-modal a:hover {
-            \\      transform: translateY(-2px);
-            \\    }
-            \\    .cmd-palette-modal p {
-            \\      color: #666;
-            \\      font-size: 13px;
-            \\      margin: 12px 0;
-            \\    }
-            \\  </style>
-            \\  <div class="cmd-palette-backdrop">
-            \\    <div class="cmd-palette-modal">
-            \\      <h1>🚀 Quick Navigate</h1>
-            \\      <p>Click a link to navigate:</p>
-            \\      <a href="file:///tmp/test.html">file:///tmp/test.html</a>
-            \\      <a href="https://example.com">https://example.com</a>
-            \\      <p style="margin-top: 20px; font-size: 11px; color: #999; font-style: italic;">
-            \\        Phase 2: Click navigation only. Type-to-navigate in Phase 3.
-            \\      </p>
-            \\      <p style="font-size: 12px; color: #764ba2; font-weight: 600; margin-top: 16px;">
-            \\        Press Cmd+K to close
-            \\      </p>
-            \\    </div>
-            \\  </div>
-        ;
+        // Generate modal HTML with text input
+        const modal_div = command_palette.generateCommandPaletteModal(allocator, current_url) catch |err| {
+            std.log.err("Failed to generate modal: {}", .{err});
+            const fallback = "<div>Error generating command palette</div>";
+            break :blk fallback;
+        };
 
         // Insert modal before </body>
         const body_close_tag = "</body>";
@@ -202,6 +144,41 @@ pub fn saveCurrentDocument(html: []const u8) !void {
     saved_content_html = try allocator.dupe(u8, html);
 }
 
+/// Extract the actual URL from a form submission URL with query parameters
+/// e.g. "http://localhost/navigate?url=https%3A%2F%2Fexample.com" -> "https://example.com"
+fn extractUrlFromQuery(url: []const u8) ![]const u8 {
+    // Look for "?url=" in the URL
+    const query_start = std.mem.indexOf(u8, url, "?url=") orelse return error.NoUrlParam;
+    const encoded_url = url[query_start + 5..]; // Skip "?url="
+
+    // URL decode the parameter
+    var decoded = std.ArrayList(u8).empty;
+    defer decoded.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < encoded_url.len) {
+        if (encoded_url[i] == '%' and i + 2 < encoded_url.len) {
+            // Decode %XX hex sequence
+            const hex = encoded_url[i+1..i+3];
+            const byte = std.fmt.parseInt(u8, hex, 16) catch {
+                try decoded.append(allocator, encoded_url[i]);
+                i += 1;
+                continue;
+            };
+            try decoded.append(allocator, byte);
+            i += 3;
+        } else if (encoded_url[i] == '+') {
+            try decoded.append(allocator, ' ');
+            i += 1;
+        } else {
+            try decoded.append(allocator, encoded_url[i]);
+            i += 1;
+        }
+    }
+
+    return try allocator.dupe(u8, decoded.items);
+}
+
 /// Navigate to a URL - called by Rust when user submits navigation
 /// Returns HTML to display (either the fetched page or error page)
 export fn frontier_navigate_to_url(url_ptr: [*]const u8, url_len: usize) HtmlResult {
@@ -211,8 +188,17 @@ export fn frontier_navigate_to_url(url_ptr: [*]const u8, url_len: usize) HtmlRes
     // Hide command palette
     command_palette_visible = false;
 
+    // Extract actual URL from query parameter if this is a form submission
+    const actual_url = extractUrlFromQuery(url) catch url;
+    const is_extracted = !std.mem.eql(u8, url, actual_url);
+    defer if (is_extracted) allocator.free(actual_url);
+
+    if (is_extracted) {
+        std.log.info("Extracted URL from query: {s}", .{actual_url});
+    }
+
     // Fetch the URL
-    const html = navigation.fetchUrl(allocator, url) catch |err| {
+    const html = navigation.fetchUrl(allocator, actual_url) catch |err| {
         std.log.err("Failed to fetch URL: {}", .{err});
         const error_html = std.fmt.allocPrint(allocator,
             \\<!DOCTYPE html>
@@ -225,7 +211,7 @@ export fn frontier_navigate_to_url(url_ptr: [*]const u8, url_len: usize) HtmlRes
             \\  <p style="color: #999; margin-top: 20px; font-size: 14px;">Press Cmd+K to try again</p>
             \\</body>
             \\</html>
-        , .{url}) catch {
+        , .{actual_url}) catch {
             const fallback = "<html><body><h1>Error</h1></body></html>";
             return HtmlResult{ .ptr = fallback.ptr, .len = fallback.len };
         };
@@ -237,11 +223,11 @@ export fn frontier_navigate_to_url(url_ptr: [*]const u8, url_len: usize) HtmlRes
         return HtmlResult{ .ptr = error_html.ptr, .len = error_html.len };
     };
 
-    // Update current URL
+    // Update current URL (use actual_url so we store the real destination)
     if (current_url) |old| {
         allocator.free(old);
     }
-    current_url = allocator.dupe(u8, url) catch null;
+    current_url = allocator.dupe(u8, actual_url) catch null;
 
     // Save content so Cmd+K can restore it
     saveCurrentDocument(html) catch |err| {

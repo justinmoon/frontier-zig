@@ -1,5 +1,149 @@
 const std = @import("std");
 
+/// Generate the modal HTML snippet (NOT a full page)
+/// This gets injected into shortcuts.zig
+pub fn generateCommandPaletteModal(allocator: std.mem.Allocator, current_url: ?[]const u8) ![]u8 {
+    const current_display = if (current_url) |url| url else "No current page";
+
+    return std.fmt.allocPrint(allocator,
+        \\  <style>
+        \\    .cmd-palette-backdrop {{
+        \\      position: fixed;
+        \\      top: 0;
+        \\      left: 0;
+        \\      right: 0;
+        \\      bottom: 0;
+        \\      background: rgba(0, 0, 0, 0.6);
+        \\      z-index: 9999;
+        \\      display: flex;
+        \\      align-items: flex-start;
+        \\      justify-content: center;
+        \\      padding-top: 15vh;
+        \\    }}
+        \\    .cmd-palette-modal {{
+        \\      background: white;
+        \\      border-radius: 12px;
+        \\      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+        \\      width: 90%;
+        \\      max-width: 600px;
+        \\      overflow: hidden;
+        \\    }}
+        \\    .cmd-palette-header {{
+        \\      padding: 20px 24px;
+        \\      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        \\      color: white;
+        \\    }}
+        \\    .cmd-palette-header h1 {{
+        \\      margin: 0 0 4px 0;
+        \\      font-size: 20px;
+        \\      font-weight: 600;
+        \\    }}
+        \\    .cmd-palette-header p {{
+        \\      margin: 0;
+        \\      opacity: 0.9;
+        \\      font-size: 13px;
+        \\    }}
+        \\    .cmd-palette-form {{
+        \\      padding: 20px 24px;
+        \\      background: #f8fafc;
+        \\    }}
+        \\    .cmd-palette-input {{
+        \\      width: 100%;
+        \\      padding: 12px 16px;
+        \\      font-size: 15px;
+        \\      border: 2px solid #cbd5e1;
+        \\      border-radius: 8px;
+        \\      font-family: 'SFMono-Regular', Consolas, monospace;
+        \\      color: #0f172a;
+        \\      background: white;
+        \\    }}
+        \\    .cmd-palette-input:focus {{
+        \\      outline: none;
+        \\      border-color: #667eea;
+        \\      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        \\    }}
+        \\    .cmd-palette-current {{
+        \\      padding: 12px 24px;
+        \\      background: white;
+        \\      border-top: 1px solid #e5e7eb;
+        \\      font-size: 12px;
+        \\      color: #64748b;
+        \\    }}
+        \\    .cmd-palette-links {{
+        \\      padding: 16px 24px 20px;
+        \\      background: white;
+        \\    }}
+        \\    .cmd-palette-links h3 {{
+        \\      margin: 0 0 10px 0;
+        \\      font-size: 12px;
+        \\      font-weight: 600;
+        \\      color: #64748b;
+        \\      text-transform: uppercase;
+        \\      letter-spacing: 0.05em;
+        \\    }}
+        \\    .cmd-palette-link {{
+        \\      display: block;
+        \\      padding: 10px 14px;
+        \\      margin: 6px 0;
+        \\      background: #f8fafc;
+        \\      border: 1px solid #e5e7eb;
+        \\      border-radius: 6px;
+        \\      text-decoration: none;
+        \\      color: #0f172a;
+        \\      font-family: monospace;
+        \\      font-size: 12px;
+        \\      transition: all 0.15s ease;
+        \\    }}
+        \\    .cmd-palette-link:hover {{
+        \\      background: white;
+        \\      border-color: #667eea;
+        \\      transform: translateX(4px);
+        \\    }}
+        \\    .cmd-palette-hint {{
+        \\      padding: 12px 24px;
+        \\      text-align: center;
+        \\      font-size: 11px;
+        \\      color: #94a3b8;
+        \\      background: #f8fafc;
+        \\      border-top: 1px solid #e5e7eb;
+        \\    }}
+        \\  </style>
+        \\  <div class="cmd-palette-backdrop">
+        \\    <div class="cmd-palette-modal">
+        \\      <div class="cmd-palette-header">
+        \\        <h1>🌐 Navigate</h1>
+        \\        <p>Type a URL or click a link below</p>
+        \\      </div>
+        \\      <div class="cmd-palette-form">
+        \\        <form action="/navigate" method="get">
+        \\          <input
+        \\            type="text"
+        \\            name="url"
+        \\            class="cmd-palette-input"
+        \\            placeholder="Enter URL (e.g., https://example.com or file:///tmp/test.html)"
+        \\            autofocus
+        \\          />
+        \\          <input type="submit" value="Navigate" style="display: none;" />
+        \\        </form>
+        \\      </div>
+        \\      <div class="cmd-palette-current">
+        \\        Current: <strong>{s}</strong>
+        \\      </div>
+        \\      <div class="cmd-palette-links">
+        \\        <h3>Quick Links</h3>
+        \\        <a href="file:///tmp/page1.html" class="cmd-palette-link">→ file:///tmp/page1.html</a>
+        \\        <a href="file:///tmp/page2.html" class="cmd-palette-link">→ file:///tmp/page2.html</a>
+        \\        <a href="file:///tmp/test.html" class="cmd-palette-link">→ file:///tmp/test.html</a>
+        \\      </div>
+        \\      <div class="cmd-palette-hint">
+        \\        Press Cmd+K to close • Enter to navigate
+        \\      </div>
+        \\    </div>
+        \\  </div>
+    , .{current_display});
+}
+
+/// Generate a full page (used for initial load when no URL provided)
 pub fn generateCommandPaletteHtml(allocator: std.mem.Allocator, current_url: ?[]const u8) ![]u8 {
     const current_display = if (current_url) |url| url else "No current page";
 
@@ -8,143 +152,13 @@ pub fn generateCommandPaletteHtml(allocator: std.mem.Allocator, current_url: ?[]
         \\<html lang="en">
         \\  <head>
         \\    <meta charset="utf-8" />
-        \\    <title>Navigation - Frontier Zig</title>
-        \\    <style>
-        \\      * {{ box-sizing: border-box; }}
-        \\      html, body {{
-        \\        margin: 0;
-        \\        padding: 0;
-        \\        width: 100%;
-        \\        height: 100%;
-        \\        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        \\        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        \\        color: white;
-        \\      }}
-        \\      .container {{
-        \\        display: flex;
-        \\        flex-direction: column;
-        \\        align-items: center;
-        \\        justify-content: center;
-        \\        min-height: 100vh;
-        \\        padding: 40px 20px;
-        \\      }}
-        \\      .palette {{
-        \\        background: rgba(255, 255, 255, 0.98);
-        \\        border-radius: 16px;
-        \\        box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
-        \\        width: 100%;
-        \\        max-width: 700px;
-        \\        overflow: hidden;
-        \\      }}
-        \\      .header {{
-        \\        padding: 24px 24px 16px;
-        \\        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        \\        color: white;
-        \\      }}
-        \\      .header h1 {{
-        \\        margin: 0 0 8px 0;
-        \\        font-size: 24px;
-        \\        font-weight: 600;
-        \\      }}
-        \\      .header p {{
-        \\        margin: 0;
-        \\        opacity: 0.9;
-        \\        font-size: 14px;
-        \\      }}
-        \\      .current {{
-        \\        padding: 16px 24px;
-        \\        background: #f8fafc;
-        \\        border-bottom: 1px solid #e5e7eb;
-        \\        font-size: 13px;
-        \\        color: #64748b;
-        \\      }}
-        \\      .current strong {{
-        \\        color: #0f172a;
-        \\      }}
-        \\      .instructions {{
-        \\        padding: 24px;
-        \\        color: #0f172a;
-        \\      }}
-        \\      .instructions h2 {{
-        \\        margin: 0 0 16px 0;
-        \\        font-size: 18px;
-        \\        font-weight: 600;
-        \\      }}
-        \\      .instructions p {{
-        \\        margin: 0 0 12px 0;
-        \\        line-height: 1.6;
-        \\        color: #475569;
-        \\      }}
-        \\      .command {{
-        \\        background: #f1f5f9;
-        \\        padding: 12px 16px;
-        \\        border-radius: 8px;
-        \\        font-family: 'SFMono-Regular', Consolas, monospace;
-        \\        font-size: 14px;
-        \\        margin: 16px 0;
-        \\        color: #0f172a;
-        \\        border: 1px solid #cbd5e1;
-        \\      }}
-        \\      .examples {{
-        \\        margin-top: 20px;
-        \\      }}
-        \\      .example {{
-        \\        background: #f8fafc;
-        \\        padding: 10px 12px;
-        \\        border-radius: 6px;
-        \\        margin: 8px 0;
-        \\        font-family: monospace;
-        \\        font-size: 13px;
-        \\        color: #475569;
-        \\        border-left: 3px solid #667eea;
-        \\      }}
-        \\      .shortcut {{
-        \\        display: inline-block;
-        \\        padding: 2px 8px;
-        \\        background: #e0e7ff;
-        \\        border-radius: 4px;
-        \\        font-size: 12px;
-        \\        font-weight: 600;
-        \\        color: #4338ca;
-        \\        font-family: monospace;
-        \\      }}
-        \\    </style>
+        \\    <title>Navigate - Frontier Zig</title>
         \\  </head>
-        \\  <body>
-        \\    <div class="container">
-        \\      <div class="palette">
-        \\        <div class="header">
-        \\          <h1>🚀 Frontier Zig Navigator</h1>
-        \\          <p>Phase 2: Command-line navigation interface</p>
-        \\        </div>
-        \\        <div class="current">
-        \\          Current: <strong>{s}</strong>
-        \\        </div>
-        \\        <div class="instructions">
-        \\          <h2>How to Navigate</h2>
-        \\          <p>To navigate to a URL, restart the application with a URL argument:</p>
-        \\          <div class="command">
-        \\            zig build run --build-file zig/build.zig -- &lt;URL&gt;
-        \\          </div>
-        \\          <p style="margin-top: 16px;">Or use the convenience wrapper:</p>
-        \\          <div class="command">
-        \\            just run -- &lt;URL&gt;
-        \\          </div>
-        \\
-        \\          <div class="examples">
-        \\            <p><strong>Examples:</strong></p>
-        \\            <div class="example">file:///Users/justin/code/frontier-zig/worktrees/phase-two-plans-claude/assets/test.html</div>
-        \\            <div class="example">file:///path/to/your/file.html</div>
-        \\          </div>
-        \\
-        \\          <p style="margin-top: 24px;">
-        \\            <strong>Try it!</strong> Press <span class="shortcut">Cmd+K</span> (or <span class="shortcut">Ctrl+K</span>) to toggle this command palette!
-        \\          </p>
-        \\          <p style="margin-top: 8px; font-size: 13px; color: #64748b;">
-        \\            Note: Full interactive navigation with URL input will be available in Phase 3 with TypeScript support.
-        \\          </p>
-        \\        </div>
-        \\      </div>
+        \\  <body style="margin: 0; font-family: -apple-system, sans-serif; background: #f5f5f5;">
+        \\    <div style="padding: 40px; text-align: center;">
+        \\      <h1 style="color: #667eea;">Frontier Zig</h1>
+        \\      <p style="color: #666;">Current: {s}</p>
+        \\      <p style="color: #999; font-size: 14px; margin-top: 20px;">Press Cmd+K to navigate</p>
         \\    </div>
         \\  </body>
         \\</html>

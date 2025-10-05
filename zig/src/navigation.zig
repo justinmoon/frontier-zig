@@ -184,22 +184,41 @@ fn fetchFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 }
 
 fn fetchHttp(allocator: std.mem.Allocator, parsed: ParsedUrl) ![]u8 {
-    // For Phase 2, we'll use a simple placeholder that returns an error page
-    // TODO: Implement proper HTTP fetching when we need it for Phase 3+
-    _ = parsed;
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
 
-    const error_html =
-        \\<!DOCTYPE html>
-        \\<html><head><title>HTTP Not Yet Implemented</title></head>
-        \\<body style="font-family: sans-serif; padding: 40px;">
-        \\<h1>HTTP Fetching Not Yet Implemented</h1>
-        \\<p>Phase 2 focuses on the navigation infrastructure.</p>
-        \\<p>HTTP/HTTPS fetching will be implemented in a future phase.</p>
-        \\<p>For now, please use file:// URLs to test navigation.</p>
-        \\</body></html>
-    ;
+    const uri = try std.Uri.parse(parsed.original);
 
-    return try allocator.dupe(u8, error_html);
+    // Create a temporary file to write the response to
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var tmp_file = try tmp_dir.dir.createFile("response.html", .{ .read = true });
+    defer tmp_file.close();
+
+    var writer_buffer: [8 * 1024]u8 = undefined;
+    var redirect_buffer: [8 * 1024]u8 = undefined;
+
+    var writer = tmp_file.writer(&writer_buffer);
+
+    const result = try client.fetch(.{
+        .location = .{ .uri = uri },
+        .method = .GET,
+        .redirect_buffer = &redirect_buffer,
+        .response_writer = &writer.interface,
+    });
+
+    _ = result; // status available if needed
+
+    // Flush the writer
+    try writer.interface.flush();
+
+    // Read back from the file
+    try tmp_file.seekTo(0);
+    const max_size = 10 * 1024 * 1024; // 10MB
+    const body = try tmp_file.readToEndAlloc(allocator, max_size);
+
+    return body;
 }
 
 test "parse http url" {
