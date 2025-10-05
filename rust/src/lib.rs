@@ -5,6 +5,7 @@ use anyrender_vello::VelloWindowRenderer;
 use blitz_dom::DocumentConfig;
 use blitz_html::HtmlDocument;
 use blitz_shell::{create_default_event_loop, BlitzApplication, BlitzShellEvent, View, WindowConfig};
+use blitz_traits::navigation::{NavigationProvider, NavigationOptions};
 use tracing_subscriber::EnvFilter;
 use winit::application::ApplicationHandler;
 use winit::event::{Modifiers, StartCause, WindowEvent};
@@ -27,6 +28,7 @@ fn init_tracing() {
 pub struct NavigationState {
     current_html: String,
     current_url: String,
+    pending_navigation: Option<(String, String)>, // (html, url)
 }
 
 impl NavigationState {
@@ -34,6 +36,7 @@ impl NavigationState {
         Self {
             current_html: html,
             current_url: url,
+            pending_navigation: None,
         }
     }
 }
@@ -52,17 +55,54 @@ struct HtmlResult {
 extern "C" {
     fn frontier_get_command_palette_html() -> HtmlResult;
     fn frontier_free_html(ptr: *const u8, len: usize);
+    fn frontier_navigate_to_url(url_ptr: *const u8, url_len: usize) -> HtmlResult;
 }
 
 // Allow undefined symbols for dylib (Zig will provide frontier_handle_shortcut)
 #[used]
 static _ALLOW_UNDEFINED: () = ();
 
+// Navigation provider that calls into Zig
+struct FrontierNavigationProvider {
+    state: Arc<Mutex<NavigationState>>,
+    event_loop_proxy: winit::event_loop::EventLoopProxy<BlitzShellEvent>,
+}
+
+impl NavigationProvider for FrontierNavigationProvider {
+    fn navigate_to(&self, options: NavigationOptions) {
+        let url = options.url.to_string();
+        tracing::info!("Navigation requested to: {}", url);
+
+        // Call Zig to fetch the URL and get HTML
+        let html_result = unsafe {
+            frontier_navigate_to_url(url.as_ptr(), url.len())
+        };
+
+        let html_slice = unsafe {
+            std::slice::from_raw_parts(html_result.ptr, html_result.len)
+        };
+        let html = std::str::from_utf8(html_slice)
+            .unwrap_or("<html><body><h1>Invalid UTF-8 in navigation response</h1></body></html>")
+            .to_owned();
+
+        tracing::info!("Got HTML from Zig navigation ({} bytes)", html.len());
+
+        // Store pending navigation
+        {
+            let mut state = self.state.lock().unwrap();
+            state.pending_navigation = Some((html, url));
+        }
+
+        // The navigation will be applied in the next new_events() call
+    }
+}
+
 pub struct FrontierApplication {
     inner: BlitzApplication<VelloWindowRenderer>,
     keyboard_modifiers: Modifiers,
     state: Arc<Mutex<NavigationState>>,
     last_rendered_url: String,
+    nav_provider: Arc<FrontierNavigationProvider>,
 }
 
 // No custom events needed - we update documents directly in window_event()
@@ -71,12 +111,14 @@ impl FrontierApplication {
     fn new(
         blitz_proxy: winit::event_loop::EventLoopProxy<BlitzShellEvent>,
         state: Arc<Mutex<NavigationState>>,
+        nav_provider: Arc<FrontierNavigationProvider>,
     ) -> Self {
         Self {
             inner: BlitzApplication::new(blitz_proxy),
             keyboard_modifiers: Default::default(),
             state,
             last_rendered_url: String::new(),
+            nav_provider,
         }
     }
 
@@ -97,6 +139,7 @@ impl FrontierApplication {
             html,
             DocumentConfig {
                 base_url: Some(url.to_string()),
+                navigation_provider: Some(self.nav_provider.clone()),
                 ..Default::default()
             },
         );
@@ -123,6 +166,17 @@ impl ApplicationHandler<BlitzShellEvent> for FrontierApplication {
     }
 
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        // Check for pending navigation and apply it
+        let pending = {
+            let mut state = self.state.lock().unwrap();
+            state.pending_navigation.take()
+        };
+
+        if let Some((html, url)) = pending {
+            tracing::info!("Applying pending navigation to: {}", url);
+            self.update_document(&html, &url);
+        }
+
         self.inner.new_events(event_loop, cause);
     }
 
@@ -194,12 +248,19 @@ fn run_event_loop(
     let event_loop = create_default_event_loop::<BlitzShellEvent>();
     let proxy = event_loop.create_proxy();
 
-    let mut application = FrontierApplication::new(proxy, state.clone());
+    // Create navigation provider that calls into Zig
+    let nav_provider = Arc::new(FrontierNavigationProvider {
+        state: state.clone(),
+        event_loop_proxy: proxy.clone(),
+    });
+
+    let mut application = FrontierApplication::new(proxy, state.clone(), nav_provider.clone());
 
     let document = HtmlDocument::from_html(
         html,
         DocumentConfig {
             base_url: Some(url.to_string()),
+            navigation_provider: Some(nav_provider),
             ..Default::default()
         },
     );

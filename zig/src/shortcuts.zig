@@ -1,5 +1,6 @@
 const std = @import("std");
 const command_palette = @import("command_palette.zig");
+const navigation = @import("navigation.zig");
 
 // Keyboard shortcut IDs (must match Rust side)
 pub const SHORTCUT_CMD_K: u8 = 1;
@@ -56,7 +57,7 @@ export fn frontier_get_command_palette_html() HtmlResult {
 
         std.log.info("Base page length: {} bytes", .{base_page.len});
 
-        // Find </body> tag and insert modal before it
+        // Modal with quicklink navigation (Phase 2 workaround)
         const modal_div =
             \\  <style>
             \\    .cmd-palette-backdrop {
@@ -85,24 +86,38 @@ export fn frontier_get_command_palette_html() HtmlResult {
             \\      font-size: 24px;
             \\      color: #333;
             \\    }
-            \\    .cmd-palette-modal input {
-            \\      width: 100%;
-            \\      padding: 12px;
-            \\      font-size: 16px;
-            \\      border: 2px solid #ddd;
-            \\      border-radius: 4px;
+            \\    .cmd-palette-modal a {
+            \\      display: block;
+            \\      padding: 12px 16px;
+            \\      margin: 8px 0;
+            \\      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            \\      color: white;
+            \\      text-decoration: none;
+            \\      border-radius: 6px;
+            \\      font-weight: 500;
+            \\      transition: transform 0.2s;
+            \\    }
+            \\    .cmd-palette-modal a:hover {
+            \\      transform: translateY(-2px);
             \\    }
             \\    .cmd-palette-modal p {
-            \\      margin: 16px 0 0 0;
             \\      color: #666;
-            \\      font-size: 14px;
+            \\      font-size: 13px;
+            \\      margin: 12px 0;
             \\    }
             \\  </style>
             \\  <div class="cmd-palette-backdrop">
             \\    <div class="cmd-palette-modal">
-            \\      <h1>🚀 Command Palette</h1>
-            \\      <input type="text" placeholder="Enter URL to navigate..." autofocus />
-            \\      <p>Press Cmd+K to close | Phase 2: Command-line navigation</p>
+            \\      <h1>🚀 Quick Navigate</h1>
+            \\      <p>Click a link to navigate:</p>
+            \\      <a href="file:///tmp/test.html">file:///tmp/test.html</a>
+            \\      <a href="https://example.com">https://example.com</a>
+            \\      <p style="margin-top: 20px; font-size: 11px; color: #999; font-style: italic;">
+            \\        Phase 2: Click navigation only. Type-to-navigate in Phase 3.
+            \\      </p>
+            \\      <p style="font-size: 12px; color: #764ba2; font-weight: 600; margin-top: 16px;">
+            \\        Press Cmd+K to close
+            \\      </p>
             \\    </div>
             \\  </div>
         ;
@@ -185,4 +200,59 @@ pub fn saveCurrentDocument(html: []const u8) !void {
         allocator.free(old);
     }
     saved_content_html = try allocator.dupe(u8, html);
+}
+
+/// Navigate to a URL - called by Rust when user submits navigation
+/// Returns HTML to display (either the fetched page or error page)
+export fn frontier_navigate_to_url(url_ptr: [*]const u8, url_len: usize) HtmlResult {
+    const url = url_ptr[0..url_len];
+    std.log.info("Navigating to: {s}", .{url});
+
+    // Hide command palette
+    command_palette_visible = false;
+
+    // Fetch the URL
+    const html = navigation.fetchUrl(allocator, url) catch |err| {
+        std.log.err("Failed to fetch URL: {}", .{err});
+        const error_html = std.fmt.allocPrint(allocator,
+            \\<!DOCTYPE html>
+            \\<html>
+            \\<head><title>Error</title></head>
+            \\<body style="font-family: sans-serif; padding: 40px; text-align: center;">
+            \\  <h1 style="color: #e53e3e;">Navigation Error</h1>
+            \\  <p style="color: #666; margin: 20px 0;">Failed to navigate to:</p>
+            \\  <code style="background: #f5f5f5; padding: 8px 12px; border-radius: 4px; display: inline-block;">{s}</code>
+            \\  <p style="color: #999; margin-top: 20px; font-size: 14px;">Press Cmd+K to try again</p>
+            \\</body>
+            \\</html>
+        , .{url}) catch {
+            const fallback = "<html><body><h1>Error</h1></body></html>";
+            return HtmlResult{ .ptr = fallback.ptr, .len = fallback.len };
+        };
+        // Store for cleanup
+        if (last_generated_html) |old| {
+            allocator.free(old);
+        }
+        last_generated_html = error_html;
+        return HtmlResult{ .ptr = error_html.ptr, .len = error_html.len };
+    };
+
+    // Update current URL
+    if (current_url) |old| {
+        allocator.free(old);
+    }
+    current_url = allocator.dupe(u8, url) catch null;
+
+    // Save content so Cmd+K can restore it
+    saveCurrentDocument(html) catch |err| {
+        std.log.err("Failed to save document: {}", .{err});
+    };
+
+    // Store for cleanup
+    if (last_generated_html) |old| {
+        allocator.free(old);
+    }
+    last_generated_html = html;
+
+    return HtmlResult{ .ptr = html.ptr, .len = html.len };
 }

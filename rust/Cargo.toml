@@ -12,6 +12,7 @@ anyrender_vello = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e026
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c", features = ["default"] }
 blitz-html = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c" }
 blitz-shell = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c" }
+blitz-traits = { git = "https://github.com/DioxusLabs/blitz.git", rev = "e0268796a2a416de62c4819ca4bea4dffbfc499c" }
 winit = { version = "0.30" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

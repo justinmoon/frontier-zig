@@ -1418,6 +1418,7 @@ dependencies = [
  "blitz-dom",
  "blitz-html",
  "blitz-shell",
+ "blitz-traits",
  "tracing",
  "tracing-subscriber",
  "winit",
