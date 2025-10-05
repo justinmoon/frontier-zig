@@ -36,10 +36,13 @@ pub fn build(b: *std.Build) void {
     if (optimize != .Debug) cargo_build.addArg("--release");
     cargo_build.addArg("--target");
     cargo_build.addArg(target_triple);
+    cargo_build.addArg("--");
+    cargo_build.addArg("-C");
     if (target_os == .macos) {
-        cargo_build.addArg("--");
-        cargo_build.addArg("-C");
-        cargo_build.addArg(b.fmt("link-arg=-Wl,-install_name,@rpath/{s}", .{lib_basename}));
+        // Allow undefined symbols (Zig will provide them)
+        cargo_build.addArg(b.fmt("link-arg=-Wl,-install_name,@rpath/{s},-undefined,dynamic_lookup", .{lib_basename}));
+    } else {
+        cargo_build.addArg("link-arg=-Wl,--allow-shlib-undefined");
     }
 
     const cargo_output_dir = b.pathJoin(&.{ "..", "rust", "target", target_triple, cargo_profile });

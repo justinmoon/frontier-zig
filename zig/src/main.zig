@@ -1,13 +1,18 @@
 const std = @import("std");
+const navigation = @import("navigation.zig");
+const command_palette = @import("command_palette.zig");
+const shortcuts = @import("shortcuts.zig");
 
 extern fn frontier_blitz_run_static_html(html_ptr: [*]const u8, len: usize) callconv(.c) bool;
+extern fn frontier_blitz_navigate(html_ptr: [*]const u8, html_len: usize, url_ptr: [*]const u8, url_len: usize) callconv(.c) bool;
+extern fn frontier_blitz_update_document(html_ptr: [*]const u8, html_len: usize, url_ptr: [*]const u8, url_len: usize) callconv(.c) bool;
 
 const DEMO_HTML =
     \\<!DOCTYPE html>
     \\<html lang="en">
     \\  <head>
     \\    <meta charset="utf-8" />
-    \\    <title>Frontier Zig Prototype</title>
+    \\    <title>Frontier Zig Prototype - Phase 2</title>
     \\    <style>
     \\      * { box-sizing: border-box; }
     \\      html, body {
@@ -74,45 +79,72 @@ const DEMO_HTML =
     \\        border-radius: 6px;
     \\        background: rgba(15, 23, 42, 0.1);
     \\      }
+    \\      .kbd {
+    \\        display: inline-block;
+    \\        padding: 3px 7px;
+    \\        font-family: SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    \\        font-size: 12px;
+    \\        background: #f8fafc;
+    \\        border: 1px solid #cbd5e1;
+    \\        border-radius: 4px;
+    \\        box-shadow: 0 2px 0 #cbd5e1;
+    \\      }
+    \\      .navigation-demo {
+    \\        margin-top: 16px;
+    \\      }
+    \\      .url-example {
+    \\        background: #f1f5f9;
+    \\        padding: 12px;
+    \\        border-radius: 8px;
+    \\        font-family: monospace;
+    \\        font-size: 13px;
+    \\        margin: 8px 0;
+    \\      }
     \\    </style>
     \\  </head>
     \\  <body>
     \\    <main>
     \\      <header>
-    \\        <p class="badge" style="position: absolute; top: 32px; right: 32px; width: auto; border-radius: 999px; padding: 6px 16px; box-shadow: none;">Phase 1</p>
+    \\        <p class="badge" style="position: absolute; top: 32px; right: 32px; width: auto; border-radius: 999px; padding: 6px 16px; box-shadow: none;">Phase 2</p>
     \\        <h1>Frontier Zig + Blitz</h1>
     \\        <p>
-    \\          This window is rendered by Blitz through the Rust bridge, launched from the Zig host.
+    \\          Navigation and address bar features are now available!
     \\        </p>
     \\      </header>
     \\      <section class="card">
-    \\        <h2 style="margin-top: 0; font-size: 22px;">Phase 1 Deliverables</h2>
+    \\        <h2 style="margin-top: 0; font-size: 22px;">Phase 2 Deliverables</h2>
     \\        <div class="steps">
     \\          <div class="step">
     \\            <span class="badge">1</span>
     \\            <div>
-    \\              <strong>Winit + Blitz window</strong>
-    \\              <p>The window and event loop are hosted by Rust's Blitz shell and called from Zig.</p>
+    \\              <strong>URL Parsing & Fetching</strong>
+    \\              <p>Support for HTTP, HTTPS, and file:// URLs with complete parsing and navigation history.</p>
     \\            </div>
     \\          </div>
     \\          <div class="step">
     \\            <span class="badge">2</span>
     \\            <div>
-    \\              <strong>Static HTML</strong>
-    \\              <p>The content you are reading was provided as an inline HTML string from the Zig executable.</p>
+    \\              <strong>Command Palette Navigation</strong>
+    \\              <p>Press <span class="kbd">Cmd+K</span> to open the command palette for URL navigation.</p>
     \\            </div>
     \\          </div>
     \\          <div class="step">
     \\            <span class="badge">3</span>
     \\            <div>
-    \\              <strong>Future phases</strong>
-    \\              <p>Next up: navigation, Bun RPC, TypeScript execution, and SQLite integrations.</p>
+    \\              <strong>Navigation History</strong>
+    \\              <p>Back/forward navigation with <span class="kbd">Cmd+[</span> and <span class="kbd">Cmd+]</span>.</p>
     \\            </div>
     \\          </div>
+    \\        </div>
+    \\        <div class="navigation-demo">
+    \\          <h3 style="font-size: 16px; margin-bottom: 8px;">Try navigating to:</h3>
+    \\          <div class="url-example">https://example.com</div>
+    \\          <div class="url-example">file:///path/to/local/file.html</div>
     \\        </div>
     \\      </section>
     \\      <footer>
     \\        <p>Launch command: <code>just run</code></p>
+    \\        <p style="margin-top: 8px;">Next up: Bun RPC, TypeScript execution, and SQLite integration.</p>
     \\      </footer>
     \\    </main>
     \\  </body>
@@ -120,12 +152,61 @@ const DEMO_HTML =
 ;
 
 pub fn main() !void {
-    std.log.info("Launching Blitz renderer prototype", .{});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    const ok = frontier_blitz_run_static_html(DEMO_HTML.ptr, DEMO_HTML.len);
-    if (!ok) {
-        std.log.err("Blitz bridge reported a failure—see Rust-side logs for details", .{});
-        return error.BlitzBridgeFailed;
+    // Parse command-line arguments
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+
+    // Skip executable name
+    _ = args.next();
+
+    const url = args.next();
+
+    if (url) |target_url| {
+        // User provided a URL on command line
+        std.log.info("Launching Blitz with URL: {s}", .{target_url});
+
+        // Initialize shortcuts with the URL
+        shortcuts.init(target_url);
+
+        const html_content = navigation.fetchUrl(allocator, target_url) catch |err| {
+            std.log.err("Failed to fetch URL {s}: {}", .{ target_url, err });
+            return err;
+        };
+        defer allocator.free(html_content);
+
+        // Save the content for command palette toggle
+        try shortcuts.saveCurrentDocument(html_content);
+
+        const ok = frontier_blitz_navigate(
+            html_content.ptr,
+            html_content.len,
+            target_url.ptr,
+            target_url.len,
+        );
+
+        if (!ok) {
+            std.log.err("Blitz bridge reported a failure—see Rust-side logs for details", .{});
+            return error.BlitzBridgeFailed;
+        }
+    } else {
+        // No URL provided, show command palette navigator
+        std.log.info("Launching Frontier Zig Navigator (Phase 2)", .{});
+
+        // Initialize shortcuts
+        shortcuts.init(null);
+
+        const palette_html = try command_palette.generateCommandPaletteHtml(allocator, null);
+        defer allocator.free(palette_html);
+
+        const ok = frontier_blitz_run_static_html(palette_html.ptr, palette_html.len);
+        if (!ok) {
+            std.log.err("Blitz bridge reported a failure—see Rust-side logs for details", .{});
+            return error.BlitzBridgeFailed;
+        }
     }
 }
 
