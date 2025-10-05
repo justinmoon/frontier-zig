@@ -81,7 +81,7 @@ Ship an end-to-end prototype of a Zig-hosted desktop browser that:
 ### Phase 2 — Navigation & Address Bar
 
 - Implement URL parsing, HTTP/file fetching, and navigation history in Zig.
-- Render an address bar UI—either via Blitz-rendered HTML overlay or by reusing the Dioxus chrome from Frontier through the cdylib.
+- Instead of having a traditional address-bar, let's have a command thing (e.g. shift-command-p in vscode etc) where we can do stuff. In ~/code/frontier we had to do a ton of work to have dioxus-based browser chrome with separate vello scenes. Kind of a PITA. I want this to be simpler. So let's just render our controls in a command thing and toggle with cmd-k or seomthing.
 - Deliverable: Entering a URL fetches and renders the remote page.
 
 ### Phase 3 — Bun Service Integration
