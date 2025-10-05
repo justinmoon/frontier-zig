@@ -4,3 +4,4 @@ zig/zig-out/
 result
 
 rust/target/
+.direnv/
